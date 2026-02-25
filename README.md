@@ -1,4 +1,4 @@
-# INDI AAPA — Automated Astronomical Polar Alignment
+# INDI AAPA — Astrophilos Astronomical Polar Alignment
 
 An [INDI](https://www.indilib.org/) driver for the **AAPA** (Automated Astronomical Polar Alignment) device — a motorised altitude/azimuth adjustment system built with Arduino + Grbl that lets you polar-align an equatorial mount without touching the knobs.
 
