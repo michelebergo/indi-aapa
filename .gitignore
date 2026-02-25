@@ -1,0 +1,24 @@
+# Build directory
+build/
+
+# IDE / editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Compiled objects
+*.o
+*.so
+*.a
+
+# CMake generated
+CMakeCache.txt
+cmake_install.cmake
+CMakeFiles/
+Makefile
+
+# Logs
+*.log

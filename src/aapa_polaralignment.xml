@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<driversList>
+    <devGroup group="Auxiliary">
+        <device label="AAPA Polar Alignment" manufacturer="AAPA">
+            <driver name="AAPA polar alignment driver">indi_aapa_polaralignment</driver>
+            <version>1.0</version>
+            <description>Driver for the AAPA Automated Polar Alignment system</description>
+        </device>
+    </devGroup>
+</driversList>
