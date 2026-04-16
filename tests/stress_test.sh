@@ -8,11 +8,11 @@ set -o pipefail
 
 # ── Configuration ─────────────────────────────────────────────
 INDI_PORT=7624
-DRIVER_BIN="indi_aapa_polaralignment"
-DEVICE="AAPA Polar Alignment"
+DRIVER_BIN="indi_oapa_polaralignment"
+DEVICE="OAPA Polar Alignment"
 SERIAL_PORT="/dev/ttyUSB0"
-LOG_FILE="/tmp/aapa_stress_test.log"
-INDI_LOG="/tmp/aapa_indiserver.log"
+LOG_FILE="/tmp/oapa_stress_test.log"
+INDI_LOG="/tmp/oapa_indiserver.log"
 DURATION_PER_TEST=15    # seconds per test phase
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -179,13 +179,13 @@ READ_ERRORS=0
 END_TIME=$((SECONDS + DURATION_PER_TEST))
 
 while [ $SECONDS -lt $END_TIME ]; do
-    if indi_getprop -1 -t 1 -p $INDI_PORT "$DEVICE.AAPA_POSITION.X_POS" &>/dev/null; then
+    if indi_getprop -1 -t 1 -p $INDI_PORT "$DEVICE.OAPA_POSITION.X_POS" &>/dev/null; then
         ((READ_COUNT++))
     else
         ((READ_ERRORS++))
     fi
     # Also hit other properties
-    indi_getprop -1 -t 1 -p $INDI_PORT "$DEVICE.AAPA_SPEED.JOG_SPEED" &>/dev/null && ((READ_COUNT++)) || ((READ_ERRORS++))
+    indi_getprop -1 -t 1 -p $INDI_PORT "$DEVICE.OAPA_SPEED.JOG_SPEED" &>/dev/null && ((READ_COUNT++)) || ((READ_ERRORS++))
 done
 
 log "  Reads completed: $READ_COUNT | Errors: $READ_ERRORS"
@@ -204,7 +204,7 @@ log "Rapidly changing speed values..."
 SPEED_OK=0
 SPEED_FAIL=0
 for speed in 1 50 100 250 500 750 1000 2500 5000 10000 1 0.5 9999 500; do
-    if indi_setprop -p $INDI_PORT "$DEVICE.AAPA_SPEED.JOG_SPEED=$speed" 2>/dev/null; then
+    if indi_setprop -p $INDI_PORT "$DEVICE.OAPA_SPEED.JOG_SPEED=$speed" 2>/dev/null; then
         ((SPEED_OK++))
     else
         ((SPEED_FAIL++))
@@ -232,7 +232,7 @@ if [ "$HARDWARE_CONNECTED" -eq 1 ]; then
     while [ $SECONDS -lt $END_TIME ]; do
         # Tiny jogs that won't move the mount much
         JOG_VAL=$(awk "BEGIN{printf \"%.2f\", (rand()-0.5)*0.5}")
-        if indi_setprop -p $INDI_PORT "$DEVICE.AAPA_JOG.X_JOG=$JOG_VAL" 2>/dev/null; then
+        if indi_setprop -p $INDI_PORT "$DEVICE.OAPA_JOG.X_JOG=$JOG_VAL" 2>/dev/null; then
             ((JOG_COUNT++))
         else
             ((JOG_ERRORS++))
@@ -248,12 +248,12 @@ if [ "$HARDWARE_CONNECTED" -eq 1 ]; then
     fi
 
     # Send abort to stop any remaining motion
-    indi_setprop -p $INDI_PORT "$DEVICE.AAPA_ABORT.ABORT=On" 2>/dev/null
+    indi_setprop -p $INDI_PORT "$DEVICE.OAPA_ABORT.ABORT=On" 2>/dev/null
     sleep 1
 else
     log "Skipping jog flood (no hardware connected) — testing property handling only"
     for i in $(seq 1 50); do
-        indi_setprop -p $INDI_PORT "$DEVICE.AAPA_JOG.X_JOG=0.1;Y_JOG=-0.1" 2>/dev/null
+        indi_setprop -p $INDI_PORT "$DEVICE.OAPA_JOG.X_JOG=0.1;Y_JOG=-0.1" 2>/dev/null
     done
     if check_driver_alive; then
         pass "Driver handled 50 jog property writes without hardware"
@@ -273,14 +273,14 @@ if [ "$HARDWARE_CONNECTED" -eq 1 ]; then
     for i in $(seq 1 30); do
         X_VAL=$(awk "BEGIN{printf \"%.2f\", (rand()-0.5)*0.2}")
         Y_VAL=$(awk "BEGIN{printf \"%.2f\", (rand()-0.5)*0.2}")
-        if indi_setprop -p $INDI_PORT "$DEVICE.AAPA_JOG.X_JOG=$X_VAL;Y_JOG=$Y_VAL" 2>/dev/null; then
+        if indi_setprop -p $INDI_PORT "$DEVICE.OAPA_JOG.X_JOG=$X_VAL;Y_JOG=$Y_VAL" 2>/dev/null; then
             ((DUAL_OK++))
         fi
         sleep 0.2
     done
 
     # Abort
-    indi_setprop -p $INDI_PORT "$DEVICE.AAPA_ABORT.ABORT=On" 2>/dev/null
+    indi_setprop -p $INDI_PORT "$DEVICE.OAPA_ABORT.ABORT=On" 2>/dev/null
     sleep 1
 
     if check_driver_alive; then
@@ -301,7 +301,7 @@ header "TEST 7: Abort Button Spam"
 log "Rapidly hitting abort..."
 ABORT_COUNT=0
 for i in $(seq 1 50); do
-    indi_setprop -p $INDI_PORT "$DEVICE.AAPA_ABORT.ABORT=On" 2>/dev/null
+    indi_setprop -p $INDI_PORT "$DEVICE.OAPA_ABORT.ABORT=On" 2>/dev/null
     ((ABORT_COUNT++))
     sleep 0.05
 done
@@ -392,16 +392,16 @@ log "Testing boundary and invalid values..."
 
 # Extreme jog values
 EDGE_CASES=(
-    "AAPA_JOG.X_JOG=99999"
-    "AAPA_JOG.X_JOG=-99999"
-    "AAPA_JOG.X_JOG=0"
-    "AAPA_JOG.Y_JOG=0"
-    "AAPA_SPEED.JOG_SPEED=0"
-    "AAPA_SPEED.JOG_SPEED=-1"
-    "AAPA_SPEED.JOG_SPEED=999999"
-    "AAPA_JOG.X_JOG=0.001"
-    "AAPA_JOG.Y_JOG=0.001"
-    "AAPA_SPEED.JOG_SPEED=0.0001"
+    "OAPA_JOG.X_JOG=99999"
+    "OAPA_JOG.X_JOG=-99999"
+    "OAPA_JOG.X_JOG=0"
+    "OAPA_JOG.Y_JOG=0"
+    "OAPA_SPEED.JOG_SPEED=0"
+    "OAPA_SPEED.JOG_SPEED=-1"
+    "OAPA_SPEED.JOG_SPEED=999999"
+    "OAPA_JOG.X_JOG=0.001"
+    "OAPA_JOG.Y_JOG=0.001"
+    "OAPA_SPEED.JOG_SPEED=0.0001"
 )
 
 EDGE_OK=0
@@ -412,7 +412,7 @@ for case in "${EDGE_CASES[@]}"; do
 done
 
 # Abort any motion from extreme jog
-indi_setprop -p $INDI_PORT "$DEVICE.AAPA_ABORT.ABORT=On" 2>/dev/null
+indi_setprop -p $INDI_PORT "$DEVICE.OAPA_ABORT.ABORT=On" 2>/dev/null
 sleep 1
 
 if check_driver_alive; then

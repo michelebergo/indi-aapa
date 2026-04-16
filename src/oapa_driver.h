@@ -1,5 +1,5 @@
-#ifndef AAPA_DRIVER_H
-#define AAPA_DRIVER_H
+#ifndef OAPA_DRIVER_H
+#define OAPA_DRIVER_H
 
 #include <libindi/defaultdevice.h>
 #include <libindi/inditimer.h>
@@ -10,7 +10,7 @@
 #define HAVE_ALIGNMENT_CORRECTION_INTERFACE 1
 #endif
 
-class AAPA : public INDI::DefaultDevice
+class OAPA : public INDI::DefaultDevice
 #ifdef HAVE_ALIGNMENT_CORRECTION_INTERFACE
     , public INDI::AlignmentCorrectionInterface
 #endif
@@ -21,8 +21,8 @@ class AAPA : public INDI::DefaultDevice
 #endif
 
 public:
-    AAPA();
-    virtual ~AAPA() = default;
+    OAPA();
+    virtual ~OAPA() = default;
 
     virtual const char *getDefaultName() override;
     virtual bool initProperties() override;
@@ -84,4 +84,4 @@ private:
     bool m_CorrectionInProgress{false};
 };
 
-#endif // AAPA_DRIVER_H
+#endif // OAPA_DRIVER_H

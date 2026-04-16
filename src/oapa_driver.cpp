@@ -1,4 +1,4 @@
-#include "aapa_driver.h"
+#include "oapa_driver.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,9 +15,9 @@
 #define POLL_MS 1000
 
 // We declare an auto pointer to the device.
-static std::unique_ptr<AAPA> aapaDevice(new AAPA());
+static std::unique_ptr<OAPA> oapaDevice(new OAPA());
 
-AAPA::AAPA()
+OAPA::OAPA()
 #ifdef HAVE_ALIGNMENT_CORRECTION_INTERFACE
     : ACI(this)
 #endif
@@ -26,12 +26,12 @@ AAPA::AAPA()
     setVersion(1, 1);
 }
 
-const char *AAPA::getDefaultName()
+const char *OAPA::getDefaultName()
 {
-    return "AAPA Polar Alignment";
+    return "OAPA Polar Alignment";
 }
 
-bool AAPA::initProperties()
+bool OAPA::initProperties()
 {
     // Initialize standard properties
     INDI::DefaultDevice::initProperties();
@@ -47,32 +47,32 @@ bool AAPA::initProperties()
     // Position (Read Only)
     IUFillNumber(&PositionN[0], "X_POS", "Azimuth", "%6.2f", 0, 10000, 0, 0);
     IUFillNumber(&PositionN[1], "Y_POS", "Altitude", "%6.2f", 0, 10000, 0, 0);
-    IUFillNumberVector(&PositionNP, PositionN, 2, getDeviceName(), "AAPA_POSITION", "Position", MAIN_CONTROL_TAB, IP_RO, 0, IPS_IDLE);
+    IUFillNumberVector(&PositionNP, PositionN, 2, getDeviceName(), "OAPA_POSITION", "Position", MAIN_CONTROL_TAB, IP_RO, 0, IPS_IDLE);
 
     // Jog Control (Write Only)
     IUFillNumber(&JogN[0], "X_JOG", "Azimuth Relative", "%6.2f", -10000, 10000, 0, 0);
     IUFillNumber(&JogN[1], "Y_JOG", "Altitude Relative", "%6.2f", -10000, 10000, 0, 0);
-    IUFillNumberVector(&JogNP, JogN, 2, getDeviceName(), "AAPA_JOG", "Jog", MAIN_CONTROL_TAB, IP_WO, 0, IPS_IDLE);
+    IUFillNumberVector(&JogNP, JogN, 2, getDeviceName(), "OAPA_JOG", "Jog", MAIN_CONTROL_TAB, IP_WO, 0, IPS_IDLE);
 
     // Speed setting
     IUFillNumber(&SpeedN[0], "JOG_SPEED", "Speed", "%6.0f", 1, 10000, 0, 500);
-    IUFillNumberVector(&SpeedNP, SpeedN, 1, getDeviceName(), "AAPA_SPEED", "Speed Configuration", MAIN_CONTROL_TAB, IP_RW, 0, IPS_IDLE);
+    IUFillNumberVector(&SpeedNP, SpeedN, 1, getDeviceName(), "OAPA_SPEED", "Speed Configuration", MAIN_CONTROL_TAB, IP_RW, 0, IPS_IDLE);
 
     // Steps-per-degree calibration
     IUFillNumber(&StepsPerDegN[0], "AZ_STEPS", "Azimuth Steps/Deg", "%6.1f", 0.1, 10000, 1, 50);
     IUFillNumber(&StepsPerDegN[1], "ALT_STEPS", "Altitude Steps/Deg", "%6.1f", 0.1, 10000, 1, 50);
-    IUFillNumberVector(&StepsPerDegNP, StepsPerDegN, 2, getDeviceName(), "AAPA_STEPS_PER_DEG",
+    IUFillNumberVector(&StepsPerDegNP, StepsPerDegN, 2, getDeviceName(), "OAPA_STEPS_PER_DEG",
                        "Calibration", MAIN_CONTROL_TAB, IP_RW, 0, IPS_IDLE);
 
     // PAA Error Input: write Ekos PAA result here to trigger auto-correction
     IUFillNumber(&PAAErrorN[0], "AZ_ERR", "Azimuth Error (deg)", "%.6f", -180, 180, 0, 0);
     IUFillNumber(&PAAErrorN[1], "ALT_ERR", "Altitude Error (deg)", "%.6f", -90, 90, 0, 0);
-    IUFillNumberVector(&PAAErrorNP, PAAErrorN, 2, getDeviceName(), "AAPA_PAA_ERROR",
+    IUFillNumberVector(&PAAErrorNP, PAAErrorN, 2, getDeviceName(), "OAPA_PAA_ERROR",
                        "PAA Error Input", MAIN_CONTROL_TAB, IP_WO, 0, IPS_IDLE);
 
     // Abort button
     IUFillSwitch(&AbortS[0], "ABORT", "Abort", ISS_OFF);
-    IUFillSwitchVector(&AbortSP, AbortS, 1, getDeviceName(), "AAPA_ABORT", "Abort Motion", MAIN_CONTROL_TAB, IP_WO, ISR_ATMOST1, 0, IPS_IDLE);
+    IUFillSwitchVector(&AbortSP, AbortS, 1, getDeviceName(), "OAPA_ABORT", "Abort Motion", MAIN_CONTROL_TAB, IP_WO, ISR_ATMOST1, 0, IPS_IDLE);
 
     // Port definition
     IUFillText(&PortT[0], "PORT", "Port", "/dev/ttyUSB0");
@@ -84,7 +84,7 @@ bool AAPA::initProperties()
     return true;
 }
 
-void AAPA::ISGetProperties(const char *dev)
+void OAPA::ISGetProperties(const char *dev)
 {
     INDI::DefaultDevice::ISGetProperties(dev);
 
@@ -100,7 +100,7 @@ void AAPA::ISGetProperties(const char *dev)
     defineProperty(&PortTP);
 }
 
-bool AAPA::updateProperties()
+bool OAPA::updateProperties()
 {
     INDI::DefaultDevice::updateProperties();
     
@@ -126,7 +126,7 @@ bool AAPA::updateProperties()
     return true;
 }
 
-bool AAPA::saveConfigItems(FILE *fp)
+bool OAPA::saveConfigItems(FILE *fp)
 {
     INDI::DefaultDevice::saveConfigItems(fp);
     IUSaveConfigNumber(fp, &SpeedNP);
@@ -135,10 +135,10 @@ bool AAPA::saveConfigItems(FILE *fp)
     return true;
 }
 
-bool AAPA::Connect()
+bool OAPA::Connect()
 {
     const char *port = PortT[0].text;
-    LOGF_INFO("Attempting to connect to AAPA on %s", port);
+    LOGF_INFO("Attempting to connect to OAPA on %s", port);
     
     // Connect to serial port at 115200 baud, 8N1
     if (tty_connect(port, 115200, 8, 0, 1, &PortFD) != TTY_OK) {
@@ -152,20 +152,20 @@ bool AAPA::Connect()
     
     // Confirm connection
     if (!Handshake()) {
-        LOG_ERROR("Failed to handshake with AAPA");
+        LOG_ERROR("Failed to handshake with OAPA");
         tty_disconnect(PortFD);
         PortFD = -1;
         return false;
     }
     
-    LOGF_INFO("Connected to AAPA on %s", port);
+    LOGF_INFO("Connected to OAPA on %s", port);
     
     // Set periodic timer to capture status
     SetTimer(POLL_MS);
     return true;
 }
 
-bool AAPA::Disconnect()
+bool OAPA::Disconnect()
 {
     m_CorrectionInProgress = false;
 
@@ -174,11 +174,11 @@ bool AAPA::Disconnect()
         PortFD = -1;
     }
     
-    LOG_INFO("Disconnected from AAPA");
+    LOG_INFO("Disconnected from OAPA");
     return true;
 }
 
-bool AAPA::Handshake()
+bool OAPA::Handshake()
 {
     char buf[512];
     int nbytes = 0;
@@ -213,7 +213,7 @@ bool AAPA::Handshake()
     return false;
 }
 
-void AAPA::sendCommand(const char *cmd)
+void OAPA::sendCommand(const char *cmd)
 {
     if (PortFD < 0) return;
     
@@ -224,7 +224,7 @@ void AAPA::sendCommand(const char *cmd)
     tty_write(PortFD, sendBuf, strlen(sendBuf), &nbytes);
 }
 
-void AAPA::jogAxis(const char *axis, double units, double speed)
+void OAPA::jogAxis(const char *axis, double units, double speed)
 {
     char cmd[128];
     snprintf(cmd, sizeof(cmd), "$J=G91G21%s%.2fF%.0f", axis, units, speed);
@@ -232,7 +232,7 @@ void AAPA::jogAxis(const char *axis, double units, double speed)
     LOGF_INFO("Jogging %s: %.2f at F%.0f", axis, units, speed);
 }
 
-bool AAPA::updateDeviceStatus()
+bool OAPA::updateDeviceStatus()
 {
     if (PortFD < 0) return false;
     
@@ -281,7 +281,7 @@ bool AAPA::updateDeviceStatus()
     return false;
 }
 
-void AAPA::TimerHit()
+void OAPA::TimerHit()
 {
     if (!isConnected()) return;
     
@@ -291,7 +291,7 @@ void AAPA::TimerHit()
     SetTimer(POLL_MS);
 }
 
-bool AAPA::ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
+bool OAPA::ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
     if (strcmp(dev, getDeviceName()) != 0)
         return false;
@@ -372,7 +372,7 @@ bool AAPA::ISNewNumber(const char *dev, const char *name, double values[], char 
     return INDI::DefaultDevice::ISNewNumber(dev, name, values, names, n);
 }
 
-bool AAPA::ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
+bool OAPA::ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
 {
     if (strcmp(dev, getDeviceName()) != 0)
         return false;
@@ -408,7 +408,7 @@ bool AAPA::ISNewSwitch(const char *dev, const char *name, ISState *states, char 
     return INDI::DefaultDevice::ISNewSwitch(dev, name, states, names, n);
 }
 
-bool AAPA::ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
+bool OAPA::ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
 {
     if (strcmp(dev, getDeviceName()) != 0)
         return false;
@@ -429,7 +429,7 @@ bool AAPA::ISNewText(const char *dev, const char *name, char *texts[], char *nam
 
 #ifdef HAVE_ALIGNMENT_CORRECTION_INTERFACE
 
-IPState AAPA::StartCorrection(double azError, double altError)
+IPState OAPA::StartCorrection(double azError, double altError)
 {
     if (!isConnected()) {
         LOG_ERROR("Cannot start correction: not connected.");
@@ -466,7 +466,7 @@ IPState AAPA::StartCorrection(double azError, double altError)
     return IPS_BUSY;
 }
 
-IPState AAPA::AbortCorrection()
+IPState OAPA::AbortCorrection()
 {
     if (!isConnected()) {
         LOG_ERROR("Cannot abort: not connected.");

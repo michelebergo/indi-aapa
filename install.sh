@@ -56,20 +56,20 @@ echo ""
 echo -e "${YELLOW}[3/4] Installing driver...${NC}"
 make install
 
-echo "  ✓ indi_aapa_polaralignment → /usr/bin/"
-echo "  ✓ indi_aapa_polaralignment.xml → /usr/share/indi/"
+echo "  ✓ indi_oapa_polaralignment → /usr/bin/"
+echo "  ✓ indi_oapa_polaralignment.xml → /usr/share/indi/"
 
 # ── Install automation scripts ────────────────────────────────
 echo ""
 echo -e "${YELLOW}[4/4] Installing automation scripts...${NC}"
-install -m 755 "$SCRIPT_DIR/aapa_closed_loop.sh" /usr/local/bin/aapa_closed_loop.sh
-install -m 755 "$SCRIPT_DIR/auto_aapa.sh" /usr/local/bin/auto_aapa.sh
+install -m 755 "$SCRIPT_DIR/oapa_closed_loop.sh" /usr/local/bin/oapa_closed_loop.sh
+install -m 755 "$SCRIPT_DIR/auto_oapa.sh" /usr/local/bin/auto_oapa.sh
 
 # Update the wrapper script to point to the installed location
-sed -i 's|/home/.*/aapa_closed_loop.sh|/usr/local/bin/aapa_closed_loop.sh|' /usr/local/bin/auto_aapa.sh
+sed -i 's|/home/.*/oapa_closed_loop.sh|/usr/local/bin/oapa_closed_loop.sh|' /usr/local/bin/auto_oapa.sh
 
-echo "  ✓ aapa_closed_loop.sh → /usr/local/bin/"
-echo "  ✓ auto_aapa.sh → /usr/local/bin/"
+echo "  ✓ oapa_closed_loop.sh → /usr/local/bin/"
+echo "  ✓ auto_oapa.sh → /usr/local/bin/"
 
 # ── Done ──────────────────────────────────────────────────────
 echo ""
@@ -79,11 +79,11 @@ echo -e "${GREEN}╚════════════════════
 echo ""
 echo "Next steps:"
 echo "  1. Open KStars → Ekos → Profile Editor"
-echo "  2. Add 'AAPA Polar Alignment' under Auxiliary drivers"
+echo "  2. Add 'OAPA Polar Alignment' under Auxiliary drivers"
 echo "  3. Set the serial port (usually /dev/ttyUSB0)"
 echo "  4. Connect and enjoy!"
 echo ""
 echo "For closed-loop automation, edit the calibration values in:"
-echo "  /usr/local/bin/aapa_closed_loop.sh"
+echo "  /usr/local/bin/oapa_closed_loop.sh"
 echo ""
-echo -e "Report bugs at: ${YELLOW}https://github.com/michelebergo/indi-aapa/issues${NC}"
+echo -e "Report bugs at: ${YELLOW}https://github.com/michelebergo/indi-oapa/issues${NC}"

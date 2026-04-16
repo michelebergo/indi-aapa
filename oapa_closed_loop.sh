@@ -6,20 +6,20 @@
 #   --interactive           : interactive loop (type values from Ekos screen)
 
 INDI_PORT=7624
-AAPA_DEVICE="AAPA Polar Alignment"
+AAPA_DEVICE="OAPA Polar Alignment"
 DBUS_ADDR="unix:path=/run/user/1000/bus"
 
 # Threshold in arcseconds. Stop correcting if error is below this.
 THRESHOLD_ARCSEC=20
 
 # ─────────────────────────────────────────────
-# Helper: send correction in degrees to AAPA_PAA_ERROR property
+# Helper: send correction in degrees to OAPA_PAA_ERROR property
 # ─────────────────────────────────────────────
 send_paa_correction() {
     local az_deg=$1
     local alt_deg=$2
     echo "  → Sending PAA correction: Az=${az_deg}°  Alt=${alt_deg}°"
-    indi_setprop -p $INDI_PORT "${AAPA_DEVICE}.AAPA_PAA_ERROR.AZ_ERR=${az_deg};ALT_ERR=${alt_deg}"
+    indi_setprop -p $INDI_PORT "${AAPA_DEVICE}.OAPA_PAA_ERROR.AZ_ERR=${az_deg};ALT_ERR=${alt_deg}"
 }
 
 # ─────────────────────────────────────────────
@@ -96,7 +96,7 @@ fi
 # ─────────────────────────────────────────────
 if [[ "$1" != "--no-daemon" ]]; then
     echo "AAPA Automation: Backgrounding loop..."
-    nohup $0 --no-daemon </dev/null >/tmp/aapa_automation.log 2>&1 &
+    nohup $0 --no-daemon </dev/null >/tmp/oapa_automation.log 2>&1 &
     exit 0
 fi
 

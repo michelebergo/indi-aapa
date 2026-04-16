@@ -18,10 +18,10 @@ fi
 echo -e "${YELLOW}Removing INDI-AAPA files...${NC}"
 
 FILES=(
-    /usr/bin/indi_aapa_polaralignment
-    /usr/share/indi/indi_aapa_polaralignment.xml
-    /usr/local/bin/aapa_closed_loop.sh
-    /usr/local/bin/auto_aapa.sh
+    /usr/bin/indi_oapa_polaralignment
+    /usr/share/indi/indi_oapa_polaralignment.xml
+    /usr/local/bin/oapa_closed_loop.sh
+    /usr/local/bin/auto_oapa.sh
 )
 
 for f in "${FILES[@]}"; do
