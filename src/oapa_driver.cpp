@@ -5,14 +5,21 @@
 #include <string.h>
 #include <unistd.h>
 #include <math.h>
+#include <time.h>
 #include <termios.h>
 
 #include <libindi/indicom.h>
 #include <libindi/inditimer.h>
 #include <libindi/indilogger.h>
 
-// 1 second polling interval
-#define POLL_MS 1000
+// 300ms polling interval (matches NINA plugin)
+#define POLL_MS 300
+
+// Move timeout in seconds (matches NINA plugin)
+#define MOVE_TIMEOUT_SEC 30
+
+// Number of stuck iterations before declaring motor stuck
+#define STUCK_THRESHOLD 5
 
 // We declare an auto pointer to the device.
 static std::unique_ptr<OAPA> oapaDevice(new OAPA());
@@ -23,7 +30,8 @@ OAPA::OAPA()
 #endif
 {
     PortFD = -1;
-    setVersion(1, 1);
+    memset(m_GrblStatus, 0, sizeof(m_GrblStatus));
+    setVersion(2, 0);
 }
 
 const char *OAPA::getDefaultName()
@@ -44,25 +52,26 @@ bool OAPA::initProperties()
     setDriverInterface(AUX_INTERFACE | ALIGNMENT_CORRECTION_INTERFACE);
 #endif
 
+    // ─── Main Control Tab ──────────────────────────────────────
+
     // Position (Read Only)
-    IUFillNumber(&PositionN[0], "X_POS", "Azimuth", "%6.2f", 0, 10000, 0, 0);
-    IUFillNumber(&PositionN[1], "Y_POS", "Altitude", "%6.2f", 0, 10000, 0, 0);
+    IUFillNumber(&PositionN[0], "X_POS", "Azimuth", "%6.2f", -100000, 100000, 0, 0);
+    IUFillNumber(&PositionN[1], "Y_POS", "Altitude", "%6.2f", -100000, 100000, 0, 0);
     IUFillNumberVector(&PositionNP, PositionN, 2, getDeviceName(), "OAPA_POSITION", "Position", MAIN_CONTROL_TAB, IP_RO, 0, IPS_IDLE);
 
-    // Jog Control (Write Only)
+    // Relative Jog (Write Only)
     IUFillNumber(&JogN[0], "X_JOG", "Azimuth Relative", "%6.2f", -10000, 10000, 0, 0);
     IUFillNumber(&JogN[1], "Y_JOG", "Altitude Relative", "%6.2f", -10000, 10000, 0, 0);
     IUFillNumberVector(&JogNP, JogN, 2, getDeviceName(), "OAPA_JOG", "Jog", MAIN_CONTROL_TAB, IP_WO, 0, IPS_IDLE);
 
-    // Speed setting
-    IUFillNumber(&SpeedN[0], "JOG_SPEED", "Speed", "%6.0f", 1, 10000, 0, 500);
-    IUFillNumberVector(&SpeedNP, SpeedN, 1, getDeviceName(), "OAPA_SPEED", "Speed Configuration", MAIN_CONTROL_TAB, IP_RW, 0, IPS_IDLE);
+    // Absolute Move (Write Only)
+    IUFillNumber(&AbsMoveN[0], "X_TARGET", "Azimuth Target", "%6.2f", -100000, 100000, 0, 0);
+    IUFillNumber(&AbsMoveN[1], "Y_TARGET", "Altitude Target", "%6.2f", -100000, 100000, 0, 0);
+    IUFillNumberVector(&AbsMoveNP, AbsMoveN, 2, getDeviceName(), "OAPA_ABS_MOVE", "Move To", MAIN_CONTROL_TAB, IP_WO, 0, IPS_IDLE);
 
-    // Steps-per-degree calibration
-    IUFillNumber(&StepsPerDegN[0], "AZ_STEPS", "Azimuth Steps/Deg", "%6.1f", 0.1, 10000, 1, 50);
-    IUFillNumber(&StepsPerDegN[1], "ALT_STEPS", "Altitude Steps/Deg", "%6.1f", 0.1, 10000, 1, 50);
-    IUFillNumberVector(&StepsPerDegNP, StepsPerDegN, 2, getDeviceName(), "OAPA_STEPS_PER_DEG",
-                       "Calibration", MAIN_CONTROL_TAB, IP_RW, 0, IPS_IDLE);
+    // Abort button
+    IUFillSwitch(&AbortS[0], "ABORT", "Abort", ISS_OFF);
+    IUFillSwitchVector(&AbortSP, AbortS, 1, getDeviceName(), "OAPA_ABORT", "Abort Motion", MAIN_CONTROL_TAB, IP_WO, ISR_ATMOST1, 0, IPS_IDLE);
 
     // PAA Error Input: write Ekos PAA result here to trigger auto-correction
     IUFillNumber(&PAAErrorN[0], "AZ_ERR", "Azimuth Error (deg)", "%.6f", -180, 180, 0, 0);
@@ -70,9 +79,56 @@ bool OAPA::initProperties()
     IUFillNumberVector(&PAAErrorNP, PAAErrorN, 2, getDeviceName(), "OAPA_PAA_ERROR",
                        "PAA Error Input", MAIN_CONTROL_TAB, IP_WO, 0, IPS_IDLE);
 
-    // Abort button
-    IUFillSwitch(&AbortS[0], "ABORT", "Abort", ISS_OFF);
-    IUFillSwitchVector(&AbortSP, AbortS, 1, getDeviceName(), "OAPA_ABORT", "Abort Motion", MAIN_CONTROL_TAB, IP_WO, ISR_ATMOST1, 0, IPS_IDLE);
+    // ─── Configuration Tab ─────────────────────────────────────
+    const char *CONFIG_TAB = "Configuration";
+
+    // Per-axis speed (matching NINA's XSpeed / YSpeed)
+    IUFillNumber(&SpeedN[0], "X_SPEED", "Azimuth Speed (F)", "%6.0f", 1, 10000, 10, 500);
+    IUFillNumber(&SpeedN[1], "Y_SPEED", "Altitude Speed (F)", "%6.0f", 1, 10000, 10, 500);
+    IUFillNumberVector(&SpeedNP, SpeedN, 2, getDeviceName(), "OAPA_SPEED", "Speed", CONFIG_TAB, IP_RW, 0, IPS_IDLE);
+
+    // Gear ratio (matching NINA's XGearRatio / YGearRatio)
+    IUFillNumber(&GearRatioN[0], "X_RATIO", "Azimuth Gear Ratio", "%6.2f", 0.01, 1000, 0.1, 1.0);
+    IUFillNumber(&GearRatioN[1], "Y_RATIO", "Altitude Gear Ratio", "%6.2f", 0.01, 1000, 0.1, 1.0);
+    IUFillNumberVector(&GearRatioNP, GearRatioN, 2, getDeviceName(), "OAPA_GEAR_RATIO", "Gear Ratio", CONFIG_TAB, IP_RW, 0, IPS_IDLE);
+
+    // Steps-per-degree calibration (for PAA error conversion)
+    IUFillNumber(&StepsPerDegN[0], "AZ_STEPS", "Azimuth Steps/Deg", "%6.1f", 0.1, 10000, 1, 50);
+    IUFillNumber(&StepsPerDegN[1], "ALT_STEPS", "Altitude Steps/Deg", "%6.1f", 0.1, 10000, 1, 50);
+    IUFillNumberVector(&StepsPerDegNP, StepsPerDegN, 2, getDeviceName(), "OAPA_STEPS_PER_DEG",
+                       "Calibration", CONFIG_TAB, IP_RW, 0, IPS_IDLE);
+
+    // Reverse Azimuth (matching NINA's ReverseAzimuth)
+    IUFillSwitch(&ReverseAzS[0], "REV_AZ_ON", "Enabled", ISS_OFF);
+    IUFillSwitch(&ReverseAzS[1], "REV_AZ_OFF", "Disabled", ISS_ON);
+    IUFillSwitchVector(&ReverseAzSP, ReverseAzS, 2, getDeviceName(), "OAPA_REVERSE_AZ",
+                       "Reverse Azimuth", CONFIG_TAB, IP_RW, ISR_1OFMANY, 0, IPS_IDLE);
+
+    // Reverse Altitude (matching NINA's ReverseAltitude)
+    IUFillSwitch(&ReverseAltS[0], "REV_ALT_ON", "Enabled", ISS_OFF);
+    IUFillSwitch(&ReverseAltS[1], "REV_ALT_OFF", "Disabled", ISS_ON);
+    IUFillSwitchVector(&ReverseAltSP, ReverseAltS, 2, getDeviceName(), "OAPA_REVERSE_ALT",
+                       "Reverse Altitude", CONFIG_TAB, IP_RW, ISR_1OFMANY, 0, IPS_IDLE);
+
+    // Backlash compensation (matching NINA's XBacklashCompensation)
+    IUFillNumber(&BacklashN[0], "X_BACKLASH", "Azimuth Backlash", "%6.2f", 0, 100, 0.1, 0);
+    IUFillNumberVector(&BacklashNP, BacklashN, 1, getDeviceName(), "OAPA_BACKLASH",
+                       "Backlash Compensation", CONFIG_TAB, IP_RW, 0, IPS_IDLE);
+
+    // ─── Motor Tab ─────────────────────────────────────────────
+    const char *MOTOR_TAB = "Motor";
+
+    // Motor run current in mA (matching NINA's XC/YC commands)
+    IUFillNumber(&MotorCurrentN[0], "X_CURRENT", "Azimuth Current (mA)", "%6.0f", 100, 3000, 50, 800);
+    IUFillNumber(&MotorCurrentN[1], "Y_CURRENT", "Altitude Current (mA)", "%6.0f", 100, 3000, 50, 800);
+    IUFillNumberVector(&MotorCurrentNP, MotorCurrentN, 2, getDeviceName(), "OAPA_MOTOR_CURRENT",
+                       "Run Current", MOTOR_TAB, IP_RW, 0, IPS_IDLE);
+
+    // Motor hold percent (matching NINA's XH/YH commands)
+    IUFillNumber(&MotorHoldN[0], "X_HOLD", "Azimuth Hold %", "%3.0f", 0, 100, 5, 50);
+    IUFillNumber(&MotorHoldN[1], "Y_HOLD", "Altitude Hold %", "%3.0f", 0, 100, 5, 50);
+    IUFillNumberVector(&MotorHoldNP, MotorHoldN, 2, getDeviceName(), "OAPA_MOTOR_HOLD",
+                       "Hold Current", MOTOR_TAB, IP_RW, 0, IPS_IDLE);
 
     // Port definition
     IUFillText(&PortT[0], "PORT", "Port", "/dev/ttyUSB0");
@@ -92,8 +148,15 @@ void OAPA::ISGetProperties(const char *dev)
     if (isConnected()) {
         defineProperty(&PositionNP);
         defineProperty(&JogNP);
+        defineProperty(&AbsMoveNP);
         defineProperty(&SpeedNP);
+        defineProperty(&GearRatioNP);
         defineProperty(&StepsPerDegNP);
+        defineProperty(&ReverseAzSP);
+        defineProperty(&ReverseAltSP);
+        defineProperty(&BacklashNP);
+        defineProperty(&MotorCurrentNP);
+        defineProperty(&MotorHoldNP);
         defineProperty(&PAAErrorNP);
         defineProperty(&AbortSP);
     }
@@ -107,14 +170,29 @@ bool OAPA::updateProperties()
     if (isConnected()) {
         defineProperty(&PositionNP);
         defineProperty(&JogNP);
+        defineProperty(&AbsMoveNP);
         defineProperty(&SpeedNP);
+        defineProperty(&GearRatioNP);
         defineProperty(&StepsPerDegNP);
+        defineProperty(&ReverseAzSP);
+        defineProperty(&ReverseAltSP);
+        defineProperty(&BacklashNP);
+        defineProperty(&MotorCurrentNP);
+        defineProperty(&MotorHoldNP);
+        defineProperty(&PAAErrorNP);
         defineProperty(&AbortSP);
     } else {
         deleteProperty(PositionNP.name);
         deleteProperty(JogNP.name);
+        deleteProperty(AbsMoveNP.name);
         deleteProperty(SpeedNP.name);
+        deleteProperty(GearRatioNP.name);
         deleteProperty(StepsPerDegNP.name);
+        deleteProperty(ReverseAzSP.name);
+        deleteProperty(ReverseAltSP.name);
+        deleteProperty(BacklashNP.name);
+        deleteProperty(MotorCurrentNP.name);
+        deleteProperty(MotorHoldNP.name);
         deleteProperty(PAAErrorNP.name);
         deleteProperty(AbortSP.name);
     }
@@ -130,7 +208,13 @@ bool OAPA::saveConfigItems(FILE *fp)
 {
     INDI::DefaultDevice::saveConfigItems(fp);
     IUSaveConfigNumber(fp, &SpeedNP);
+    IUSaveConfigNumber(fp, &GearRatioNP);
     IUSaveConfigNumber(fp, &StepsPerDegNP);
+    IUSaveConfigSwitch(fp, &ReverseAzSP);
+    IUSaveConfigSwitch(fp, &ReverseAltSP);
+    IUSaveConfigNumber(fp, &BacklashNP);
+    IUSaveConfigNumber(fp, &MotorCurrentNP);
+    IUSaveConfigNumber(fp, &MotorHoldNP);
     IUSaveConfigText(fp, &PortTP);
     return true;
 }
@@ -168,6 +252,8 @@ bool OAPA::Connect()
 bool OAPA::Disconnect()
 {
     m_CorrectionInProgress = false;
+    m_MoveInProgress = false;
+    m_StuckCount = 0;
 
     if (PortFD > 0) {
         tty_disconnect(PortFD);
@@ -226,10 +312,91 @@ void OAPA::sendCommand(const char *cmd)
 
 void OAPA::jogAxis(const char *axis, double units, double speed)
 {
+    // Apply gear ratio
+    double gearRatio = 1.0;
+    bool reversed = false;
+
+    if (strcmp(axis, "X") == 0) {
+        gearRatio = GearRatioN[0].value;
+        reversed = (ReverseAzS[0].s == ISS_ON);
+    } else if (strcmp(axis, "Y") == 0) {
+        gearRatio = GearRatioN[1].value;
+        reversed = (ReverseAltS[0].s == ISS_ON);
+    }
+
+    double scaledUnits = units * gearRatio;
+    if (reversed)
+        scaledUnits = -scaledUnits;
+
+    // Track direction for backlash
+    Direction newDir = (scaledUnits >= 0) ? DIR_POSITIVE : DIR_NEGATIVE;
+    if (strcmp(axis, "X") == 0) {
+        Direction oldDir = m_LastXDirection;
+        m_LastXDirection = newDir;
+        // Check if direction changed and backlash is configured
+        if (oldDir != DIR_NONE && oldDir != newDir && fabs(BacklashN[0].value) > 0) {
+            LOGF_INFO("X direction changed, applying backlash compensation: %.2f", BacklashN[0].value);
+            applyBacklashCompensation(axis, speed);
+        }
+    } else if (strcmp(axis, "Y") == 0) {
+        m_LastYDirection = newDir;
+    }
+
     char cmd[128];
-    snprintf(cmd, sizeof(cmd), "$J=G91G21%s%.2fF%.0f", axis, units, speed);
+    snprintf(cmd, sizeof(cmd), "$J=G91G21%s%.2fF%.0f", axis, scaledUnits, speed);
     sendCommand(cmd);
-    LOGF_INFO("Jogging %s: %.2f at F%.0f", axis, units, speed);
+    LOGF_INFO("Jogging %s: %.2f (raw=%.2f, ratio=%.2f, rev=%d) at F%.0f",
+              axis, scaledUnits, units, gearRatio, reversed, speed);
+}
+
+void OAPA::jogAxisAbsolute(const char *axis, double position, double speed)
+{
+    // Apply gear ratio
+    double gearRatio = 1.0;
+    bool reversed = false;
+
+    if (strcmp(axis, "X") == 0) {
+        gearRatio = GearRatioN[0].value;
+        reversed = (ReverseAzS[0].s == ISS_ON);
+    } else if (strcmp(axis, "Y") == 0) {
+        gearRatio = GearRatioN[1].value;
+        reversed = (ReverseAltS[0].s == ISS_ON);
+    }
+
+    double target = position * gearRatio;
+    if (reversed)
+        target = -target;
+
+    // Track direction based on current position
+    double currentPos = (strcmp(axis, "X") == 0) ? PositionN[0].value : PositionN[1].value;
+    Direction newDir = (target >= currentPos) ? DIR_POSITIVE : DIR_NEGATIVE;
+    if (strcmp(axis, "X") == 0) {
+        Direction oldDir = m_LastXDirection;
+        m_LastXDirection = newDir;
+        if (oldDir != DIR_NONE && oldDir != newDir && fabs(BacklashN[0].value) > 0) {
+            LOGF_INFO("X direction changed on abs move, applying backlash compensation: %.2f", BacklashN[0].value);
+            applyBacklashCompensation(axis, speed);
+        }
+    } else if (strcmp(axis, "Y") == 0) {
+        m_LastYDirection = newDir;
+    }
+
+    char cmd[128];
+    snprintf(cmd, sizeof(cmd), "$J=G53%s%.2fF%.0f", axis, target, speed);
+    sendCommand(cmd);
+    LOGF_INFO("Absolute move %s to %.2f (gear-scaled, rev=%d) at F%.0f", axis, target, reversed, speed);
+}
+
+void OAPA::applyBacklashCompensation(const char *axis, double speed)
+{
+    // Matching NINA's ClearBacklash: overshoot then return
+    double bl = BacklashN[0].value;
+    char cmd1[128], cmd2[128];
+    snprintf(cmd1, sizeof(cmd1), "$J=G91G21%s%.2fF%.0f", axis, -bl, speed);
+    snprintf(cmd2, sizeof(cmd2), "$J=G91G21%s%.2fF%.0f", axis, bl, speed);
+    sendCommand(cmd1);
+    usleep(200000);  // Brief pause between backlash moves
+    sendCommand(cmd2);
 }
 
 bool OAPA::updateDeviceStatus()
@@ -247,8 +414,18 @@ bool OAPA::updateDeviceStatus()
         buf[nbytes] = '\0';
         
         // Typical GRBL status: <Idle|MPos:0.000,0.000,0.000|...>
+        // Extended: <Idle|MPos:x,y,z|T:target,R:running,E:endstop,S:speed>
         if (buf[0] == '<') {
-            // Check if Grbl is Idle (needed for correction completion)
+            // Extract status string (e.g., "Idle", "Run", "Jog")
+            char *statusEnd = strchr(buf + 1, '|');
+            if (statusEnd) {
+                int len = statusEnd - (buf + 1);
+                if (len > 0 && len < (int)sizeof(m_GrblStatus)) {
+                    strncpy(m_GrblStatus, buf + 1, len);
+                    m_GrblStatus[len] = '\0';
+                }
+            }
+
             bool isIdle = (strstr(buf, "Idle") != nullptr);
 
             char *mpos = strstr(buf, "MPos:");
@@ -286,6 +463,50 @@ void OAPA::TimerHit()
     if (!isConnected()) return;
     
     updateDeviceStatus();
+
+    // ─── Move completion tracking ──────────────────────────────
+    if (m_MoveInProgress) {
+        double dx = fabs(PositionN[0].value - m_TargetX);
+        double dy = fabs(PositionN[1].value - m_TargetY);
+
+        // Check if we've reached target (within 0.01 tolerance, matching NINA)
+        if (dx <= 0.01 && dy <= 0.01) {
+            m_MoveInProgress = false;
+            m_StuckCount = 0;
+            LOG_INFO("Move completed: target reached.");
+            AbsMoveNP.s = IPS_OK;
+            IDSetNumber(&AbsMoveNP, nullptr);
+        } else {
+            // Check for stuck motor
+            static double lastX = 0, lastY = 0;
+            if (fabs(PositionN[0].value - lastX) < 0.01 && fabs(PositionN[1].value - lastY) < 0.01) {
+                m_StuckCount++;
+                if (m_StuckCount > STUCK_THRESHOLD) {
+                    m_MoveInProgress = false;
+                    m_StuckCount = 0;
+                    LOGF_ERROR("Motor appears stuck at X=%.2f Y=%.2f (target X=%.2f Y=%.2f)",
+                               PositionN[0].value, PositionN[1].value, m_TargetX, m_TargetY);
+                    AbsMoveNP.s = IPS_ALERT;
+                    IDSetNumber(&AbsMoveNP, nullptr);
+                }
+            } else {
+                m_StuckCount = 0;
+            }
+            lastX = PositionN[0].value;
+            lastY = PositionN[1].value;
+
+            // Check timeout
+            time_t now = time(nullptr);
+            if (difftime(now, m_MoveStartTime) > MOVE_TIMEOUT_SEC) {
+                m_MoveInProgress = false;
+                m_StuckCount = 0;
+                LOGF_ERROR("Move timeout after %ds. Current X=%.2f Y=%.2f, target X=%.2f Y=%.2f",
+                           MOVE_TIMEOUT_SEC, PositionN[0].value, PositionN[1].value, m_TargetX, m_TargetY);
+                AbsMoveNP.s = IPS_ALERT;
+                IDSetNumber(&AbsMoveNP, nullptr);
+            }
+        }
+    }
     
     // Re-arm timer
     SetTimer(POLL_MS);
@@ -318,17 +539,46 @@ bool OAPA::ISNewNumber(const char *dev, const char *name, double values[], char 
             }
         }
         
-        double speed = SpeedN[0].value;
-        
+        // Use per-axis speeds
         if (x_jog != 0)
-            jogAxis("X", x_jog, speed);
+            jogAxis("X", x_jog, SpeedN[0].value);
         
         if (y_jog != 0)
-            jogAxis("Y", y_jog, speed);
+            jogAxis("Y", y_jog, SpeedN[1].value);
         
         JogNP.s = IPS_OK;
         IDSetNumber(&JogNP, nullptr);
         
+        return true;
+    }
+
+    // Absolute move
+    if (strcmp(name, AbsMoveNP.name) == 0) {
+        double x_target = 0, y_target = 0;
+        bool doX = false, doY = false;
+        for (int i = 0; i < n; i++) {
+            if (strcmp(names[i], "X_TARGET") == 0) { x_target = values[i]; doX = true; }
+            else if (strcmp(names[i], "Y_TARGET") == 0) { y_target = values[i]; doY = true; }
+        }
+
+        AbsMoveNP.s = IPS_BUSY;
+        IDSetNumber(&AbsMoveNP, nullptr);
+
+        if (doX)
+            jogAxisAbsolute("X", x_target, SpeedN[0].value);
+        if (doY)
+            jogAxisAbsolute("Y", y_target, SpeedN[1].value);
+
+        // Start move tracking
+        m_TargetX = doX ? (x_target * GearRatioN[0].value) : PositionN[0].value;
+        m_TargetY = doY ? (y_target * GearRatioN[1].value) : PositionN[1].value;
+        if (ReverseAzS[0].s == ISS_ON && doX) m_TargetX = -m_TargetX;
+        if (ReverseAltS[0].s == ISS_ON && doY) m_TargetY = -m_TargetY;
+        m_MoveInProgress = true;
+        m_StuckCount = 0;
+        m_MoveStartTime = time(nullptr);
+
+        LOGF_INFO("Absolute move started: target X=%.2f Y=%.2f", m_TargetX, m_TargetY);
         return true;
     }
     
@@ -336,6 +586,18 @@ bool OAPA::ISNewNumber(const char *dev, const char *name, double values[], char 
         IUUpdateNumber(&SpeedNP, values, names, n);
         SpeedNP.s = IPS_OK;
         IDSetNumber(&SpeedNP, nullptr);
+        LOGF_INFO("Speed updated: Az=%.0f Alt=%.0f", SpeedN[0].value, SpeedN[1].value);
+        return true;
+    }
+
+    if (strcmp(name, GearRatioNP.name) == 0) {
+        IUUpdateNumber(&GearRatioNP, values, names, n);
+        // Enforce minimum of 0.01
+        if (GearRatioN[0].value < 0.01) GearRatioN[0].value = 0.01;
+        if (GearRatioN[1].value < 0.01) GearRatioN[1].value = 0.01;
+        GearRatioNP.s = IPS_OK;
+        IDSetNumber(&GearRatioNP, nullptr);
+        LOGF_INFO("Gear ratio updated: X=%.2f Y=%.2f", GearRatioN[0].value, GearRatioN[1].value);
         return true;
     }
 
@@ -348,6 +610,48 @@ bool OAPA::ISNewNumber(const char *dev, const char *name, double values[], char 
         return true;
     }
 
+    if (strcmp(name, BacklashNP.name) == 0) {
+        IUUpdateNumber(&BacklashNP, values, names, n);
+        BacklashNP.s = IPS_OK;
+        IDSetNumber(&BacklashNP, nullptr);
+        LOGF_INFO("Backlash compensation updated: %.2f", BacklashN[0].value);
+        return true;
+    }
+
+    // Motor run current — send XC/YC commands to firmware
+    if (strcmp(name, MotorCurrentNP.name) == 0) {
+        IUUpdateNumber(&MotorCurrentNP, values, names, n);
+        MotorCurrentNP.s = IPS_OK;
+        IDSetNumber(&MotorCurrentNP, nullptr);
+        if (isConnected()) {
+            char cmd[32];
+            snprintf(cmd, sizeof(cmd), "XC%d", (int)MotorCurrentN[0].value);
+            sendCommand(cmd);
+            snprintf(cmd, sizeof(cmd), "YC%d", (int)MotorCurrentN[1].value);
+            sendCommand(cmd);
+            LOGF_INFO("Motor run current set: X=%dmA Y=%dmA",
+                      (int)MotorCurrentN[0].value, (int)MotorCurrentN[1].value);
+        }
+        return true;
+    }
+
+    // Motor hold percent — send XH/YH commands to firmware
+    if (strcmp(name, MotorHoldNP.name) == 0) {
+        IUUpdateNumber(&MotorHoldNP, values, names, n);
+        MotorHoldNP.s = IPS_OK;
+        IDSetNumber(&MotorHoldNP, nullptr);
+        if (isConnected()) {
+            char cmd[32];
+            snprintf(cmd, sizeof(cmd), "XH%d", (int)MotorHoldN[0].value);
+            sendCommand(cmd);
+            snprintf(cmd, sizeof(cmd), "YH%d", (int)MotorHoldN[1].value);
+            sendCommand(cmd);
+            LOGF_INFO("Motor hold percent set: X=%d%% Y=%d%%",
+                      (int)MotorHoldN[0].value, (int)MotorHoldN[1].value);
+        }
+        return true;
+    }
+
     // PAA Error: convert degrees to steps and auto-correct
     if (strcmp(name, PAAErrorNP.name) == 0) {
         double az_err = 0, alt_err = 0;
@@ -357,13 +661,12 @@ bool OAPA::ISNewNumber(const char *dev, const char *name, double values[], char 
         }
         double az_steps  = -az_err  * StepsPerDegN[0].value;
         double alt_steps = -alt_err * StepsPerDegN[1].value;
-        double speed = SpeedN[0].value;
         LOGF_INFO("PAA correction: az_err=%.4f deg -> %.0f steps | alt_err=%.4f deg -> %.0f steps",
                   az_err, az_steps, alt_err, alt_steps);
         PAAErrorNP.s = IPS_BUSY;
         IDSetNumber(&PAAErrorNP, nullptr);
-        if (az_steps != 0)  jogAxis("X", az_steps, speed);
-        if (alt_steps != 0) jogAxis("Y", alt_steps, speed);
+        if (az_steps != 0)  jogAxis("X", az_steps, SpeedN[0].value);
+        if (alt_steps != 0) jogAxis("Y", alt_steps, SpeedN[1].value);
         PAAErrorNP.s = IPS_OK;
         IDSetNumber(&PAAErrorNP, nullptr);
         return true;
@@ -395,6 +698,8 @@ bool OAPA::ISNewSwitch(const char *dev, const char *name, ISState *states, char 
             sendCommand(resetCmd);
             
             m_CorrectionInProgress = false;
+            m_MoveInProgress = false;
+            m_StuckCount = 0;
             LOG_INFO("Motion aborted.");
             
             AbortS[0].s = ISS_OFF;
@@ -402,6 +707,24 @@ bool OAPA::ISNewSwitch(const char *dev, const char *name, ISState *states, char 
             IDSetSwitch(&AbortSP, nullptr);
         }
         
+        return true;
+    }
+
+    // Reverse Azimuth
+    if (strcmp(name, ReverseAzSP.name) == 0) {
+        IUUpdateSwitch(&ReverseAzSP, states, names, n);
+        ReverseAzSP.s = IPS_OK;
+        IDSetSwitch(&ReverseAzSP, nullptr);
+        LOGF_INFO("Reverse Azimuth: %s", (ReverseAzS[0].s == ISS_ON) ? "Enabled" : "Disabled");
+        return true;
+    }
+
+    // Reverse Altitude
+    if (strcmp(name, ReverseAltSP.name) == 0) {
+        IUUpdateSwitch(&ReverseAltSP, states, names, n);
+        ReverseAltSP.s = IPS_OK;
+        IDSetSwitch(&ReverseAltSP, nullptr);
+        LOGF_INFO("Reverse Altitude: %s", (ReverseAltS[0].s == ISS_ON) ? "Enabled" : "Disabled");
         return true;
     }
 

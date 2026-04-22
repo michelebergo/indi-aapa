@@ -50,38 +50,82 @@ private:
     bool updateDeviceStatus();
     void sendCommand(const char *cmd);
     void jogAxis(const char *axis, double units, double speed);
+    void jogAxisAbsolute(const char *axis, double position, double speed);
+    void applyBacklashCompensation(const char *axis, double speed);
 
-    // Number properties for actual positions
+    // ─── Position (Read Only) ──────────────────────────────────
     INumberVectorProperty PositionNP;
     INumber PositionN[2];
 
-    // Number properties for relative jogging
+    // ─── Relative Jog (Write Only) ─────────────────────────────
     INumberVectorProperty JogNP;
     INumber JogN[2];
-    
-    // Number property for Feed Rate/Speed
-    INumberVectorProperty SpeedNP;
-    INumber SpeedN[1];
 
-    // Number property for Steps-Per-Degree calibration
+    // ─── Absolute Move (Write Only) ────────────────────────────
+    INumberVectorProperty AbsMoveNP;
+    INumber AbsMoveN[2];
+
+    // ─── Per-axis Speed ────────────────────────────────────────
+    INumberVectorProperty SpeedNP;
+    INumber SpeedN[2];  // [0] = X/Azimuth speed, [1] = Y/Altitude speed
+
+    // ─── Gear Ratio ────────────────────────────────────────────
+    INumberVectorProperty GearRatioNP;
+    INumber GearRatioN[2];  // [0] = X ratio, [1] = Y ratio
+
+    // ─── Steps-Per-Degree calibration ──────────────────────────
     INumberVectorProperty StepsPerDegNP;
     INumber StepsPerDegN[2];
 
-    // Writable PAA error input (degrees) — write AZ_ERR + ALT_ERR to trigger auto-correction
+    // ─── Reverse Axis ──────────────────────────────────────────
+    // Two independent on/off switches
+    ISwitchVectorProperty ReverseAzSP;
+    ISwitch ReverseAzS[2];   // ON / OFF
+
+    ISwitchVectorProperty ReverseAltSP;
+    ISwitch ReverseAltS[2];  // ON / OFF
+
+    // ─── Backlash Compensation ─────────────────────────────────
+    INumberVectorProperty BacklashNP;
+    INumber BacklashN[1];  // X-axis backlash (matching NINA)
+
+    // ─── Motor Run Current (mA) ────────────────────────────────
+    INumberVectorProperty MotorCurrentNP;
+    INumber MotorCurrentN[2];  // [0] = X, [1] = Y
+
+    // ─── Motor Hold Percent ────────────────────────────────────
+    INumberVectorProperty MotorHoldNP;
+    INumber MotorHoldN[2];  // [0] = X, [1] = Y
+
+    // ─── PAA Error Input ───────────────────────────────────────
     INumberVectorProperty PAAErrorNP;
     INumber PAAErrorN[2];
 
-    // Switch property to stop motion
+    // ─── Abort Button ──────────────────────────────────────────
     ISwitchVectorProperty AbortSP;
     ISwitch AbortS[1];
 
+    // ─── Serial Port ───────────────────────────────────────────
     ITextVectorProperty PortTP;
     IText PortT[1];
 
     int PortFD;
 
-    // Tracking correction state
+    // ─── Movement tracking (for completion + backlash) ─────────
     bool m_CorrectionInProgress{false};
+    bool m_MoveInProgress{false};
+    double m_TargetX{0};
+    double m_TargetY{0};
+    int m_StuckCount{0};
+    time_t m_MoveStartTime{0};
+
+    // Direction tracking for backlash compensation
+    enum Direction { DIR_NONE, DIR_POSITIVE, DIR_NEGATIVE };
+    Direction m_LastXDirection{DIR_NONE};
+    Direction m_LastYDirection{DIR_NONE};
+
+    // Grbl status string
+    char m_GrblStatus[32];
 };
 
 #endif // OAPA_DRIVER_H
